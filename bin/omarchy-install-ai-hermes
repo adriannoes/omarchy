@@ -36,8 +36,8 @@ runtime="$HERMES_HOME/hermes-agent"
 native_app="$runtime/apps/desktop/release/linux-unpacked"
 
 # The venv commands the desktop and the readiness probe actually run. The
-# bootstrap marker is separate: packaged install.sh --skip-setup never writes
-# it, even after these binaries are already usable.
+# bootstrap marker is separate: the packaged hermes-desktop install path
+# Omarchy ships may leave it missing even when these binaries are usable.
 runtime_commands_ready() {
   [[ -f $runtime/venv/bin/hermes && -x $runtime/venv/bin/hermes && -f $runtime/venv/bin/python && -x $runtime/venv/bin/python ]] &&
     timeout 15 "$runtime/venv/bin/hermes" --version >/dev/null 2>&1
@@ -45,45 +45,6 @@ runtime_commands_ready() {
 
 runtime_ready() {
   [[ -f $runtime/.hermes-bootstrap-complete ]] && runtime_commands_ready
-}
-
-# Linux install.sh --skip-setup never stamps this; Windows install.ps1 does
-# (Write-BootstrapMarker). Match that schema so omarchy-install-hermes-cli
-# --check and theme activation see a finished desktop runtime. desktopVersion
-# is omitted on purpose: only the Electron app knows it, and the validator
-# does not require the field.
-write_desktop_bootstrap_marker() {
-  local pinned_commit pinned_branch completed_at marker tmp
-
-  pinned_commit=$release_commit
-  if [[ -z $pinned_commit ]]; then
-    pinned_commit=$(git -C "$runtime" rev-parse HEAD 2>/dev/null || true)
-  fi
-  if [[ ! $pinned_commit =~ ^[0-9a-f]{7,}$ ]]; then
-    return 0
-  fi
-
-  pinned_branch=main
-  completed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  marker=$runtime/.hermes-bootstrap-complete
-  tmp=$(mktemp -p "$runtime" .hermes-bootstrap-complete.XXXXXX)
-  if ! jq -n --indent 2 \
-    --arg pinnedCommit "$pinned_commit" \
-    --arg pinnedBranch "$pinned_branch" \
-    --arg completedAt "$completed_at" \
-    '{schemaVersion: 1, pinnedCommit: $pinnedCommit, pinnedBranch: $pinnedBranch, completedAt: $completedAt}' >"$tmp"; then
-    rm -f -- "$tmp"
-    return 0
-  fi
-  mv -f -- "$tmp" "$marker"
-}
-
-# A usable headless runtime is finished except for the marker skip-setup
-# never writes. Stamp it without handing a dirty tree back to install.sh.
-ensure_desktop_bootstrap_marker() {
-  [[ -f $runtime/.hermes-bootstrap-complete ]] && return 0
-  runtime_commands_ready || return 0
-  write_desktop_bootstrap_marker
 }
 
 check_main() {
@@ -95,7 +56,10 @@ check_main() {
   fi
 }
 
-ensure_desktop_bootstrap_marker
+# Stamp a usable runtime that is only missing the marker the packaged
+# hermes-desktop path may omit. Do not hand a dirty tree back to install.sh
+# just to create that file.
+HERMES_BOOTSTRAP_PINNED_COMMIT=$release_commit omarchy-stamp-hermes-bootstrap
 
 if ! runtime_ready; then
   # The upstream installer can reset an existing checkout. Do not pin a newer
@@ -129,7 +93,7 @@ if ! runtime_ready; then
 
   echo "Setting up the Hermes runtime..."
   bash /usr/share/hermes-desktop/install.sh --skip-setup --branch main --commit "$release_commit" --force-commit --dir "$runtime" --hermes-home "$HERMES_HOME"
-  ensure_desktop_bootstrap_marker
+  HERMES_BOOTSTRAP_PINNED_COMMIT=$release_commit omarchy-stamp-hermes-bootstrap
   if ! runtime_ready; then
     echo "Hermes runtime setup did not complete. Re-run this command after resolving the installer error." >&2
     exit 1

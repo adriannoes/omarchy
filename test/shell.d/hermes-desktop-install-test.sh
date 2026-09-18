@@ -91,8 +91,9 @@ SH
 chmod +x "$runtime/venv/bin/hermes"
 printf '#!/bin/bash\nexec /usr/bin/python3 "$@"\n' >"$runtime/venv/bin/python"
 chmod +x "$runtime/venv/bin/python"
-# Deliberately no .hermes-bootstrap-complete: packaged install.sh --skip-setup
-# never writes it. Omarchy must stamp the desktop marker itself.
+# Deliberately no .hermes-bootstrap-complete: the packaged hermes-desktop
+# install.sh --skip-setup that Omarchy ships does not write it. Upstream
+# install.sh may stamp after a full install; this mock matches the package.
 mkdir -p "$HOME/.local/bin"
 for command in hermes hermes-agent hermes-acp; do
   rm -f "$HOME/.local/bin/$command"
@@ -195,7 +196,7 @@ new_home() {
   : >"$test_tmp/events"
 }
 run_installer() {
-  HOME="$test_home" HERMES_HOME="${OMARCHY_TEST_HOME:-$hermes_home}" PATH="$test_tmp/bin:$PATH" \
+  HOME="$test_home" HERMES_HOME="${OMARCHY_TEST_HOME:-$hermes_home}" PATH="$test_tmp/bin:$ROOT/bin:$PATH" \
     bash "$test_tmp/installer" >"$test_tmp/output" 2>&1
 }
 assert_stopped() {
